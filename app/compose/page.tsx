@@ -21,10 +21,7 @@ export default function ComposePage() {
   const [placeholders, setPlaceholders] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const handleCSVUpload = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const text = e.target.value;
-    setCsvText(text);
-
+  const processCSVText = (text: string) => {
     try {
       if (text.trim()) {
         const { headers: parsedHeaders } = parseCSV(text);
@@ -40,6 +37,34 @@ export default function ComposePage() {
       toast.error('Invalid CSV format');
       setHeaders([]);
     }
+  };
+
+  const handleCSVUpload = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = e.target.value;
+    setCsvText(text);
+    processCSVText(text);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.csv')) {
+      toast.error('Please upload a CSV file');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      setCsvText(text);
+      processCSVText(text);
+      toast.success(`File "${file.name}" uploaded successfully`);
+    };
+    reader.onerror = () => {
+      toast.error('Failed to read file');
+    };
+    reader.readAsText(file);
   };
 
   const handleBodyChange = (text: string) => {
@@ -98,6 +123,39 @@ export default function ComposePage() {
             {/* CSV Upload */}
             <Card className="p-6 border-border">
               <Label className="text-base font-semibold mb-3 block">1. Upload CSV</Label>
+
+              {/* File Upload Button */}
+              <div className="mb-4">
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="csv-file-upload"
+                />
+                <label htmlFor="csv-file-upload">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => document.getElementById('csv-file-upload')?.click()}
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    Upload CSV File
+                  </Button>
+                </label>
+              </div>
+
+              {/* Or Paste Text */}
+              <div className="relative mb-3">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t border-border" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-card px-2 text-muted-foreground">Or paste CSV text</span>
+                </div>
+              </div>
+
               <Textarea
                 placeholder="email,first_name,company,industry
 john@example.com,John,Acme,Tech
