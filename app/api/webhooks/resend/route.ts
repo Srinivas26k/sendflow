@@ -18,15 +18,30 @@ export async function POST(req: NextRequest) {
 
             const replyFrom = body.data.from; // Email address of person who replied
             const originalSubject = body.data.subject || 'Your inquiry';
+            const messageId = body.data.message_id; // Message ID for threading
+            const references = body.data.references || ''; // Previous references
 
             // Send auto-response with Calendly link
             const calendlyLink = process.env.CALENDLY_LINK || 'https://calendly.com/yourlink';
             const yourName = process.env.YOUR_NAME || 'Srinivas';
 
+            // Build proper threading headers
+            const headers: Record<string, string> = {
+                'In-Reply-To': messageId,
+            };
+
+            // Include References header for proper threading
+            if (references) {
+                headers['References'] = `${references} ${messageId}`;
+            } else {
+                headers['References'] = messageId;
+            }
+
             const { error } = await resend.emails.send({
                 from: process.env.EMAIL_ADDRESS || 'onboarding@resend.dev',
                 to: replyFrom,
                 subject: `Re: ${originalSubject}`,
+                headers,
                 html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px;">
             <p>Hi there! 👋</p>

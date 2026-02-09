@@ -2,6 +2,7 @@ import { parseCSV } from '@/lib/csv';
 import { renderTemplate } from '@/lib/placeholder';
 import { Resend } from 'resend';
 import { v4 as uuid } from 'uuid';
+import { updateCampaignStats } from '@/lib/campaign-stats';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -69,6 +70,16 @@ export async function POST(req: Request) {
         errorCount++;
       }
     }
+
+    // Track campaign stats
+    updateCampaignStats({
+      campaignId,
+      subject,
+      totalLeads: rows.length,
+      sent: successCount,
+      failed: errorCount,
+      skipped: skippedCount,
+    });
 
     return Response.json({
       campaignId,
