@@ -12,27 +12,28 @@ export async function POST(req: NextRequest) {
         // Resend webhook events we care about
         const eventType = body.type;
 
-        // Handle email.replied event
-        if (eventType === 'email.replied') {
-            console.log('✉️ Reply detected from:', body.data.from);
+        // Handle email.received event (when someone replies to your campaign)
+        if (eventType === 'email.received') {
+            console.log('✉️ Inbound email received from:', body.data.from);
 
-            const replyFrom = body.data.from; // Email address of person who replied
+            const replyFrom = body.data.from[0]; // Email address of person who replied (array)
             const originalSubject = body.data.subject || 'Your inquiry';
             const messageId = body.data.message_id; // Message ID for threading
-            const references = body.data.references || ''; // Previous references
 
             // Send auto-response with Calendly link
             const calendlyLink = process.env.CALENDLY_LINK || 'https://calendly.com/yourlink';
             const yourName = process.env.YOUR_NAME || 'Srinivas';
 
-            // Build proper threading headers
+            // Build proper threading headers for reply
+            // We must reference the original message ID in In-Reply-To
             const headers: Record<string, string> = {
                 'In-Reply-To': messageId,
             };
 
-            // Include References header for proper threading
-            if (references) {
-                headers['References'] = `${references} ${messageId}`;
+            // If previous references exist, append the original message ID
+            // This maintains the thread history
+            if (body.data.references) {
+                headers['References'] = `${body.data.references} ${messageId}`;
             } else {
                 headers['References'] = messageId;
             }
@@ -40,13 +41,13 @@ export async function POST(req: NextRequest) {
             const { error } = await resend.emails.send({
                 from: process.env.EMAIL_ADDRESS || 'onboarding@resend.dev',
                 to: replyFrom,
-                subject: `Re: ${originalSubject}`,
+                subject: originalSubject.startsWith('Re:') ? originalSubject : `Re: ${originalSubject}`,
                 headers,
                 html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px;">
             <p>Hi there! 👋</p>
             
-            <p>Thank you for your reply! I'd love to discuss this further with you.</p>
+            <p>Thank you for your email! I'd love to discuss this further with you.</p>
             
             <p>Please use the link below to schedule a convenient time for us to meet:</p>
             
@@ -64,14 +65,14 @@ export async function POST(req: NextRequest) {
             <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
             
             <p style="font-size: 12px; color: #888;">
-              This is an automated response to your reply. If you prefer to contact me directly, 
+              This is an automated response to your message. If you prefer to contact me directly, 
               please reply to this email and I'll get back to you personally.
             </p>
           </div>
         `,
                 text: `Hi there!
 
-Thank you for your reply! I'd love to discuss this further with you.
+Thank you for your email! I'd love to discuss this further with you.
 
 Please use the link below to schedule a convenient time for us to meet:
 ${calendlyLink}
@@ -82,7 +83,7 @@ Best regards,
 ${yourName}
 
 ---
-This is an automated response to your reply. If you prefer to contact me directly, please reply to this email and I'll get back to you personally.`,
+This is an automated response to your message. If you prefer to contact me directly, please reply to this email and I'll get back to you personally.`,
             });
 
             if (error) {
