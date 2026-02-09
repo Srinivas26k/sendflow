@@ -2,15 +2,31 @@
 import { store } from '@/lib/store';
 
 export async function GET() {
-    // Generate some mock historical data for the chart if empty
-    // In a real app this would query the DB
-    const dailyStats = [
-        { date: '2023-10-01', sent: 120, replied: 5 },
-        { date: '2023-10-02', sent: 150, replied: 8 },
-        { date: '2023-10-03', sent: 200, replied: 12 },
-        { date: '2023-10-04', sent: 180, replied: 10 },
-        { date: '2023-10-05', sent: 220, replied: 15 },
-    ];
+    // Aggregate logs by date for the chart
+    const dailyStatsMap = new Map<string, { sent: number, replied: number }>();
+
+    // Initialize last 7 days with 0
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        dailyStatsMap.set(dateStr, { sent: 0, replied: 0 });
+    }
+
+    store.logs.forEach(log => {
+        const dateStr = new Date(log.timestamp).toISOString().split('T')[0];
+        if (dailyStatsMap.has(dateStr)) {
+            const entry = dailyStatsMap.get(dateStr)!;
+            if (log.event === 'email.sent') entry.sent++;
+            if (log.event === 'email.received') entry.replied++;
+        }
+    });
+
+    const dailyStats = Array.from(dailyStatsMap.entries()).map(([date, stats]) => ({
+        date,
+        sent: stats.sent,
+        replied: stats.replied
+    }));
 
     return Response.json({
         total_leads: store.leads.length,
