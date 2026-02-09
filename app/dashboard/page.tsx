@@ -1,177 +1,215 @@
-'use client';
 
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Mail, Send, MessageCircle, Clock } from 'lucide-react';
-import Link from 'next/link';
-import { useState, useEffect } from 'react';
+"use client";
 
-interface Campaign {
-  id: string;
-  name: string;
-  subject: string;
-  totalLeads: number;
-  sent: number;
-  replied: number;
-  status: string;
-  createdAt: string;
-}
-
-interface Stats {
-  totalLeads: number;
-  sentToday: number;
-  replied: number;
-  pending: number;
-}
+import { useEffect, useState, useRef } from 'react';
+import DashboardLayout from '@/components/DashboardLayout';
+import { Play, Pause, Square, FolderUp, Upload } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState<Stats>({
-    totalLeads: 0,
-    sentToday: 0,
-    replied: 0,
-    pending: 0,
+  const [metrics, setMetrics] = useState({
+    sent: 0,
+    daily_limit: 500,
+    replies: 0,
+    failed: 0,
+    status: 'STOPPED'
   });
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [logs, setLogs] = useState<any[]>([]);
+
+  const fetchMetrics = async () => {
+    try {
+      const res = await fetch('/api/metrics');
+      const data = await res.json();
+      setMetrics({
+        sent: data.sent_today ?? 0,
+        daily_limit: data.daily_limit || 500,
+        replies: data.replies ?? 0,
+        failed: data.failed ?? 0,
+        status: data.campaign_status || 'STOPPED'
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchLogs = async () => {
+    try {
+      const res = await fetch('/api/logs?page=1&limit=5');
+      const data = await res.json();
+      setLogs(data.logs || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   useEffect(() => {
-    async function fetchData() {
-      try {
-        // Fetch stats
-        const statsRes = await fetch('/api/stats?type=stats');
-        const statsData = await statsRes.json();
-        setStats(statsData);
-
-        // Fetch campaigns
-        const campaignsRes = await fetch('/api/stats?type=campaigns');
-        const campaignsData = await campaignsRes.json();
-        setCampaigns(campaignsData);
-      } catch (error) {
-        console.error('Failed to fetch dashboard data:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchData();
-    // Refresh every 10 seconds
-    const interval = setInterval(fetchData, 10000);
+    fetchMetrics();
+    fetchLogs();
+    const interval = setInterval(() => {
+      fetchMetrics();
+      fetchLogs();
+    }, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  const statsCards = [
-    { label: 'Total Leads', value: stats.totalLeads.toString(), icon: Mail, color: 'text-primary' },
-    { label: 'Sent Today', value: stats.sentToday.toString(), icon: Send, color: 'text-secondary' },
-    { label: 'Replied', value: stats.replied.toString(), icon: MessageCircle, color: 'text-accent' },
-    { label: 'Pending', value: stats.pending.toString(), icon: Clock, color: 'text-primary' },
-  ];
+  const handleCampaignAction = async (action: 'start' | 'pause' | 'stop') => {
+    try {
+      const res = await fetch(`/api/campaign/${action}`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || `Campaign ${action}ed`);
+        fetchMetrics();
+      } else {
+        toast.error(data.detail || 'Action failed');
+      }
+    } catch (e) {
+      toast.error('Failed to perform action');
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!file) {
+      document.getElementById('csvFile')?.click();
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    setUploading(true);
+
+    try {
+      const res = await fetch('/api/leads/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message);
+        setFile(null);
+        fetchMetrics();
+      } else {
+        toast.error(data.detail || 'Upload failed');
+      }
+    } catch (e) {
+      toast.error('Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'RUNNING': return '#059669';
+      case 'PAUSED': return '#d97706';
+      case 'STOPPED': return '#dc2626';
+      default: return '#71717a';
+    }
+  };
+
+  const percentage = metrics.daily_limit > 0 ? (metrics.sent / metrics.daily_limit) * 100 : 0;
 
   return (
-    <div className="min-h-screen bg-background py-12 px-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-12 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground mb-2">Dashboard</h1>
-            <p className="text-muted-foreground">Track all your campaigns and leads</p>
-          </div>
-          <Link href="/compose">
-            <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
-              Create Campaign
-            </Button>
-          </Link>
+    <DashboardLayout>
+      <div className="page active">
+        <div className="page-header">
+          <h1>Dashboard</h1>
+          <p className="subtitle">Your dedicated 24/7 outreach engine</p>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-          {statsCards.map((stat) => {
-            const Icon = stat.icon;
-            return (
-              <Card key={stat.label} className="p-6 border-border">
-                <div className="flex items-center justify-between mb-4">
-                  <p className="text-sm text-muted-foreground">{stat.label}</p>
-                  <Icon className={`w-5 h-5 ${stat.color}`} />
-                </div>
-                <p className="text-3xl font-bold text-foreground">{stat.value}</p>
-              </Card>
-            );
-          })}
+        {/* Metrics Grid */}
+        <div className="metrics-grid">
+          <div className="metric-card">
+            <div className="metric-label">SENT TODAY:</div>
+            <div className="metric-value">{metrics.sent} / {metrics.daily_limit}</div>
+          </div>
+          <div className="metric-card">
+            <div className="metric-label">REPLIES:</div>
+            <div className="metric-value">{metrics.replies}</div>
+          </div>
+          <div className="metric-card">
+            <div className="metric-label">FAILED:</div>
+            <div className="metric-value">{metrics.failed}</div>
+          </div>
+          <div className="metric-card status-card">
+            <div className="metric-label">CAMPAIGN STATUS</div>
+            <div
+              className="status-badge"
+              style={{
+                backgroundColor: getStatusColor(metrics.status) + '20', // 20% opacity
+                color: getStatusColor(metrics.status)
+              }}
+            >
+              {metrics.status}
+            </div>
+          </div>
         </div>
 
-        {/* Campaigns Table */}
-        <Card className="border-border">
-          <div className="p-6 border-b border-border">
-            <h2 className="text-xl font-bold text-foreground">Recent Campaigns</h2>
+        {/* Progress Bar */}
+        <div className="progress-section">
+          <div className="progress-header">
+            <span>Daily Progress</span>
+            <span>{Math.round(percentage)}%</span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  <th className="text-left px-6 py-3 text-sm font-semibold text-foreground">Campaign</th>
-                  <th className="text-left px-6 py-3 text-sm font-semibold text-foreground">Total Leads</th>
-                  <th className="text-left px-6 py-3 text-sm font-semibold text-foreground">Sent</th>
-                  <th className="text-left px-6 py-3 text-sm font-semibold text-foreground">Replied</th>
-                  <th className="text-left px-6 py-3 text-sm font-semibold text-foreground">Status</th>
-                  <th className="text-left px-6 py-3 text-sm font-semibold text-foreground">Created</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {loading ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">
-                      Loading campaigns...
-                    </td>
-                  </tr>
-                ) : campaigns.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center">
-                      <div className="flex flex-col items-center">
-                        <Mail className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
-                        <h3 className="text-lg font-semibold text-foreground mb-2">No campaigns yet</h3>
-                        <p className="text-muted-foreground mb-4">Start by creating your first email campaign</p>
-                        <Link href="/compose">
-                          <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
-                            Create Campaign
-                          </Button>
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  campaigns.map((campaign) => (
-                    <tr key={campaign.id} className="hover:bg-muted/30 transition">
-                      <td className="px-6 py-4">
-                        <div>
-                          <p className="font-medium text-foreground">{campaign.name}</p>
-                          <p className="text-xs text-muted-foreground mt-1 truncate max-w-xs">{campaign.subject}</p>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-foreground">{campaign.totalLeads}</td>
-                      <td className="px-6 py-4 text-sm text-foreground">
-                        {campaign.sent} ({Math.round((campaign.sent / campaign.totalLeads) * 100)}%)
-                      </td>
-                      <td className="px-6 py-4 text-sm text-foreground">{campaign.replied}</td>
-                      <td className="px-6 py-4 text-sm">
-                        <span
-                          className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${campaign.status === 'active'
-                              ? 'bg-accent/20 text-accent'
-                              : 'bg-muted text-muted-foreground'
-                            }`}
-                        >
-                          {campaign.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-muted-foreground">
-                        {new Date(campaign.createdAt).toLocaleDateString()}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: `${percentage}%` }}></div>
           </div>
-        </Card>
+        </div>
+
+        {/* Command Center */}
+        <div className="command-section">
+          <h2>Campaign</h2>
+          <div className="button-grid">
+            <button type="button" className="btn btn-start" onClick={() => handleCampaignAction('start')}>
+              <Play className="btn-icon" /> Start
+            </button>
+            <button type="button" className="btn btn-pause" onClick={() => handleCampaignAction('pause')}>
+              <Pause className="btn-icon" /> Pause
+            </button>
+            <button type="button" className="btn btn-stop" onClick={() => handleCampaignAction('stop')}>
+              <Square className="btn-icon" /> Stop
+            </button>
+          </div>
+        </div>
+
+        {/* Upload Leads */}
+        <div className="upload-section">
+          <h2>Upload leads</h2>
+          <div className="upload-box">
+            <div
+              className="upload-area"
+              onClick={() => document.getElementById('csvFile')?.click()}
+            >
+              <FolderUp className="upload-icon mx-auto" aria-hidden="true" />
+              <p>{file ? file.name : 'Drag and drop CSV here, or click to browse'}</p>
+              <input
+                type="file"
+                id="csvFile"
+                accept=".csv"
+                style={{ display: 'none' }}
+                onChange={(e) => e.target.files && setFile(e.target.files[0])}
+              />
+            </div>
+            <button type="button" className="btn btn-upload" onClick={handleUpload} disabled={uploading}>
+              <Upload className="btn-icon" aria-hidden="true" /> {uploading ? 'Uploading...' : 'Upload CSV'}
+            </button>
+          </div>
+        </div>
+
+        {/* Recent Activity */}
+        <div className="logs-section">
+          <h2>Recent activity</h2>
+          <div className="logs-container">
+            {logs.length > 0 ? logs.map(log => (
+              <div key={log.id} className="log-entry">
+                <span className="log-event">{log.event}</span>
+                <span className="log-timestamp">{log.timestamp.substring(11, 16)}</span>
+              </div>
+            )) : <p className="no-data">No activity yet</p>}
+          </div>
+        </div>
       </div>
-    </div>
+    </DashboardLayout>
   );
 }
